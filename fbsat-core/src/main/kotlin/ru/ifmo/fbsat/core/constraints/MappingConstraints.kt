@@ -312,7 +312,6 @@ fun Solver.declarePositiveConsecutiveModularMappingConstraints(
                             modularStateAlgorithmBot[m][c, z]
                         )
         }
-
     }
 }
 
