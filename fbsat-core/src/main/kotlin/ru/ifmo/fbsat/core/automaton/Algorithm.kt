@@ -39,10 +39,11 @@ class BinaryAlgorithm(val algorithm0: BooleanArray, val algorithm1: BooleanArray
             val name = outputNames[i]
             val a0 = algorithm0[i]
             val a1 = algorithm1[i]
-            if (a0 == a1)
-                "$name:=${a0.toString().toUpperCase()};"
-            else
-                "$name:=NOT $name;"
+            when {
+                a0 == a1 -> "$name:=${a0.toString().toUpperCase()};"
+                a0 -> "$name:=NOT $name;"
+                else -> ""
+            }
         }
     }
 
