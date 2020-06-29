@@ -1,0 +1,72 @@
+MODULE CONTROL_1(p0,REQ,p1, x)
+VAR
+    _state : {s1, s2, s3, s4, s5, s6};
+    deliver : boolean;
+    a0 : boolean;
+    a1 : boolean;
+    y : boolean;
+ASSIGN
+    init(_state) := s1;
+    next(_state) := case
+        _state=s1 & p1 & (!x) : s2;
+        _state=s1 & p0 & (!x) : s4;
+        _state=s1 & p1 & (!x) : s3;
+        _state=s1 & REQ & (!x) : s5;
+        _state=s2 & p0 & (!x) : s5;
+        _state=s2 & REQ & (!x) : s6;
+        _state=s4 & REQ & (!x) : s5;
+        _state=s5 & REQ & (!x) : s2;
+        _state=s5 & p1 & (!x) : s2;
+        _state=s6 & p0 & (!x) : s3;
+        TRUE : _state;
+    esac;
+    
+    init(deliver) := FALSE;
+    next(deliver) := case
+        _state=s1 & p1 & (!x) : TRUE;
+        _state=s1 & p0 & (!x) : TRUE;
+        _state=s1 & p1 & (!x) : TRUE;
+        _state=s5 & REQ & (!x) : TRUE;
+        _state=s5 & p1 & (!x) : TRUE;
+        _state=s6 & p0 & (!x) : TRUE;
+        TRUE : FALSE;
+    esac;
+    
+    init(a0) := FALSE;
+    next(a0) := case
+        _state=s1 & REQ & (!x) : TRUE;
+        _state=s2 & p0 & (!x) : TRUE;
+        _state=s4 & REQ & (!x) : TRUE;
+        TRUE : FALSE;
+    esac;
+    
+    init(a1) := FALSE;
+    next(a1) := case
+        _state=s2 & REQ & (!x) : TRUE;
+        TRUE : FALSE;
+    esac;
+    
+    init(y) := FALSE;
+    next(y) := case
+        _state=s1 & p1 & (!x) & !y : FALSE;
+        _state=s1 & p1 & (!x) & y : FALSE;
+        _state=s1 & p0 & (!x) & !y : FALSE;
+        _state=s1 & p0 & (!x) & y : FALSE;
+        _state=s1 & p1 & (!x) & !y : FALSE;
+        _state=s1 & p1 & (!x) & y : FALSE;
+        _state=s1 & REQ & (!x) & !y : FALSE;
+        _state=s1 & REQ & (!x) & y : TRUE;
+        _state=s2 & p0 & (!x) & !y : FALSE;
+        _state=s2 & p0 & (!x) & y : TRUE;
+        _state=s2 & REQ & (!x) & !y : FALSE;
+        _state=s2 & REQ & (!x) & y : FALSE;
+        _state=s4 & REQ & (!x) & !y : FALSE;
+        _state=s4 & REQ & (!x) & y : TRUE;
+        _state=s5 & REQ & (!x) & !y : FALSE;
+        _state=s5 & REQ & (!x) & y : FALSE;
+        _state=s5 & p1 & (!x) & !y : FALSE;
+        _state=s5 & p1 & (!x) & y : FALSE;
+        _state=s6 & p0 & (!x) & !y : FALSE;
+        _state=s6 & p0 & (!x) & y : FALSE;
+        TRUE : y;
+    esac;

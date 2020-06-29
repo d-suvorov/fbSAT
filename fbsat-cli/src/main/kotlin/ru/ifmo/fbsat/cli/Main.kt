@@ -14,10 +14,13 @@ import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.file
 import com.github.ajalt.clikt.parameters.types.int
 import com.soywiz.klock.DateTime
+import com.soywiz.klock.PerformanceCounter
 import com.soywiz.klock.measureTime
 import ru.ifmo.fbsat.core.automaton.Automaton
 import ru.ifmo.fbsat.core.automaton.OutputValues
 import ru.ifmo.fbsat.core.automaton.minimizeTruthTableGuards
+import ru.ifmo.fbsat.core.scenario.negative.Counterexample
+import ru.ifmo.fbsat.core.scenario.negative.NegativeScenario
 import ru.ifmo.fbsat.core.scenario.negative.NegativeScenarioTree
 import ru.ifmo.fbsat.core.scenario.positive.ScenarioTree
 import ru.ifmo.fbsat.core.solver.Solver
@@ -45,14 +48,7 @@ import ru.ifmo.fbsat.core.task.single.extended.extendedMin
 import ru.ifmo.fbsat.core.task.single.extended.extendedMinUB
 import ru.ifmo.fbsat.core.task.single.extforest.extForest
 import ru.ifmo.fbsat.core.task.single.extforest.extForestMin
-import ru.ifmo.fbsat.core.utils.EpsilonOutputEvents
-import ru.ifmo.fbsat.core.utils.Globals
-import ru.ifmo.fbsat.core.utils.SolverBackend
-import ru.ifmo.fbsat.core.utils.StartStateAlgorithms
-import ru.ifmo.fbsat.core.utils.inputNamesPnP
-import ru.ifmo.fbsat.core.utils.log
-import ru.ifmo.fbsat.core.utils.outputNamesPnP
-import ru.ifmo.fbsat.core.utils.withIndex
+import ru.ifmo.fbsat.core.utils.*
 import java.io.File
 
 enum class Method(val s: String) {
@@ -79,28 +75,21 @@ enum class Method(val s: String) {
     ConsecutiveModularExtendedMinUB("modular-consecutive-extended-min-ub"),
     ArbitraryModularBasic("modular-arbitrary-basic"),
     ArbitraryModularBasicMin("modular-arbitrary-basic-min"),
+    Distributed("distributed")
 }
 
 @Suppress("MemberVisibilityCanBePrivate")
 class FbSAT : CliktCommand() {
-    val fileScenarios: File by option(
+    val fileScenarios: String by option(
         "-i", "--scenarios",
         help = "File with scenarios",
         metavar = "<path>"
-    ).file(
-        mustExist = true,
-        canBeDir = false,
-        mustBeReadable = true
     ).required()
 
-    val fileCounterexamples: File? by option(
+    val fileCounterexamples: String? by option(
         "-ce", "--counterexamples",
         help = "File with counter-examples",
         metavar = "<path>"
-    ).file(
-        mustExist = true,
-        canBeDir = false,
-        mustBeReadable = true
     )
 
     val smvDir: File by option(
@@ -420,22 +409,56 @@ class FbSAT : CliktCommand() {
         outDir.mkdirs()
         check(outDir.exists()) { "Output directory does not exist" }
 
+        // FIXME should be a list as well
+        // But it should work now
         val inputNames = fileInputNames?.readLines() ?: inputNamesPnP
         val outputNames = fileOutputNames?.readLines() ?: outputNamesPnP
         log.info("Input names: $inputNames")
         log.info("Output names: $outputNames")
 
+        // FIXME should be a list as well
+        // But it should work now
         Globals.INITIAL_OUTPUT_VALUES = initialOutputValues ?: OutputValues.zeros(outputNames.size)
         check(Globals.INITIAL_OUTPUT_VALUES.values.size == outputNames.size) {
             "Initial values size must be equal to the number of output variables"
         }
 
-        val tree = ScenarioTree.fromFile(fileScenarios, inputNames, outputNames)
-        log.info("Scenarios: ${tree.scenarios.size}")
+        val trees = fileScenarios.split(",").map {
+            ScenarioTree.fromFile(File(it), inputNames, outputNames)
+        }
+        // val tree = ScenarioTree.fromFile(fileScenarios, inputNames, outputNames)
+        /*log.info("Scenarios: ${tree.scenarios.size}")
         log.info("Elements: ${tree.scenarios.sumBy { it.elements.size }}")
-        log.info("Scenario tree size: ${tree.size}")
+        log.info("Scenario tree size: ${tree.size}")*/
+        log.info("Scenario sources: ${trees.size}")
+        for (i in trees.indices) {
+            val tree = trees[i]
+            log.info("Scenario source: $i")
+            log.info("  Scenarios: ${tree.scenarios.size}")
+            log.info("  Elements: ${tree.scenarios.sumBy { it.elements.size }}")
+            log.info("  Scenario tree size: ${tree.size}")
+        }
 
-        val negTree = fileCounterexamples?.let {
+        val negTrees = if (fileCounterexamples != null)
+            fileCounterexamples!!.split(",").withIndex().map { iv ->
+                NegativeScenarioTree.fromFile(
+                    File(iv.value),
+                    trees[iv.index].inputEvents,
+                    trees[iv.index].outputEvents,
+                    trees[iv.index].inputNames,
+                    trees[iv.index].outputNames
+                )
+            }
+        else trees.indices.map {
+            NegativeScenarioTree(
+                inputEvents = trees[it].inputEvents,
+                outputEvents = trees[it].outputEvents,
+                inputNames = trees[it].inputNames,
+                outputNames = trees[it].outputNames
+            )
+        }
+
+        /*val negTree = fileCounterexamples?.let {
             NegativeScenarioTree.fromFile(
                 it,
                 tree.inputEvents,
@@ -446,7 +469,7 @@ class FbSAT : CliktCommand() {
                 log.info("Negative scenarios: ${negTree.negativeScenarios.size}")
                 log.info("Negative elements: ${negTree.negativeScenarios.sumBy { it.elements.size }}")
             }
-        }
+        }*/
 
         // ===
         fileVis?.let { file ->
@@ -454,10 +477,11 @@ class FbSAT : CliktCommand() {
             log.info("Visualizing <$file>...")
             val negST = NegativeScenarioTree.fromFile(
                 file,
-                tree.inputEvents,
-                tree.outputEvents,
-                tree.inputNames,
-                tree.outputNames
+                // FIXME
+                trees[0].inputEvents,
+                trees[0].outputEvents,
+                trees[0].inputNames,
+                trees[0].outputNames
             )
             File("$file.gv").writeText(negST.toGraphvizString())
             Runtime.getRuntime().exec("dot -Tpdf -O $file.gv").waitFor()
@@ -505,6 +529,8 @@ class FbSAT : CliktCommand() {
 
         val inferrer = Inferrer(solverProvider(), outDir)
 
+        val tree = trees[0]
+        val negTree = negTrees?.get(0)
         val automaton: Automaton? = when (method) {
             Method.Basic -> {
                 inferrer.basic(
@@ -968,6 +994,107 @@ class FbSAT : CliktCommand() {
                 log.br()
                 null
             }
+            Method.Distributed -> {
+                // TODO Move to parameters
+                // Hardcoded stuff
+                val numberOfStatesList = intArrayOf(7, 6)
+                val namingMappingSender = mapOf(
+                    "REQ" to "REQ",
+                    "PHONY" to "x",
+                    "tmr.timeout" to "timeout",
+                    "bwdc.o0" to "a0",
+                    "bwdc.o1" to "a1",
+                    "sndr._state" to "_state",
+                    "sndr.send" to "send",
+                    "sndr.p0" to "p0",
+                    "sndr.done" to "done",
+                    "sndr.p1" to "p1",
+                    "sndr.y" to "y"
+                )
+                val namingMappingReceiver = mapOf(
+                    "REQ" to "REQ",
+                    "PHONY" to "x",
+                    "fwdc.o0" to "p0",
+                    "fwdc.o1" to "p1",
+                    "rcvr._state" to "_state",
+                    "rcvr.deliver" to "deliver",
+                    "rcvr.a0" to "a0",
+                    "rcvr.a1" to "a1",
+                    "rcvr.y" to "y"
+                )
+                val mappings = arrayOf(namingMappingSender, namingMappingReceiver)
+
+                var iteration = 0
+                cegis@ while (true) {
+                    iteration++
+                    log.info("CEGIS iteration: $iteration")
+
+                    // Infer automatons
+                    val automatons = mutableListOfNulls<Automaton>(trees.size)
+                    for (i in trees.indices) {
+                        // TODO reuse solver
+                        val automaton = inferrer.complete(
+                            scenarioTree = trees[i],
+                            negativeScenarioTree = negTrees.get(i),
+                            numberOfStates = numberOfStatesList[i],
+                            maxOutgoingTransitions = maxOutgoingTransitions,
+                            maxGuardSize = requireNotNull(maxGuardSize),
+                            maxTransitions = maxTransitions,
+                            maxTotalGuardsSize = maxTotalGuardsSize
+                        )
+                        if (automaton == null) {
+                            log.info("Automaton not found")
+                            break@cegis
+                        }
+                        automatons[i] = automaton
+                    }
+
+                    // Dump intermediate results
+                    for (i in automatons.indices) {
+                        automatons[i]!!.dump(outDir, "_automaton_node%d_iter%04d".format(i, iteration))
+                    }
+
+                    // Verify
+                    for (i in automatons.indices) {
+                        automatons[i]!!.dumpSmv(smvDir.resolve("control_$i.smv"), name = "CONTROL_$i")
+                    }
+                    val cmd = "make clean model counterexamples"
+                    log.debug { "Running '$cmd'..." }
+                    val timeStart = PerformanceCounter.reference
+                    val exitcode = Runtime.getRuntime().exec(cmd, null, smvDir).waitFor()
+                    val runningTime = timeSince(timeStart)
+                    log.debug { "'$cmd' returned with $exitcode in %.3f s.".format(runningTime.seconds) }
+                    check(exitcode == 0) { "NuSMV exitcode: $exitcode" }
+
+                    // Update counterexamples
+                    val fileCounterexamples = smvDir.resolve("counterexamples")
+                    if (!fileCounterexamples.exists()) {
+                        log.info("Success, CEGIS iteration: $iteration")
+                        break
+                    }
+
+                    log.info("Found counterexamples:")
+                    for (i in automatons.indices) {
+                        val ces: List<Counterexample> = Counterexample.fromFile(fileCounterexamples, mappings[i])
+                        println(ces)
+                        val negativeScenarios = ces.map {
+                            NegativeScenario.fromCounterexample(
+                                it,
+                                trees[i].inputEvents,
+                                trees[i].outputEvents,
+                                trees[i].inputNames,
+                                trees[i].outputNames
+                            )
+                        }
+                        val before = negTrees[i].size
+                        negativeScenarios.forEach(negTrees[i]::addNegativeScenario)
+                        val diff = negTrees[i].size - before
+                        log.info("Node $i negative tree diff: $diff")
+                    }
+                }
+
+                null
+            }
             else -> TODO("method '$method'")
         }
 
@@ -998,7 +1125,7 @@ class FbSAT : CliktCommand() {
                 // Runtime.getRuntime().exec("dot -Tpdf -O $fileCEMarkedGv")
             }
 
-            fileVerifyCE?.let {
+            fileVerifyCE?.let{
                 val nst = NegativeScenarioTree.fromFile(
                     it,
                     tree.inputEvents,

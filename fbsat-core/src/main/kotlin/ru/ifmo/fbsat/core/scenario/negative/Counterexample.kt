@@ -46,7 +46,7 @@ data class Counterexample(
     }
 
     companion object {
-        fun fromFile(file: File): List<Counterexample> {
+        fun fromFile(file: File, mapping: Map<String, String>? = null): List<Counterexample> {
             val ces: MutableList<Counterexample> = mutableListOf()
             var states: MutableList<State> = mutableListOf()
             var hasState = false
@@ -111,7 +111,10 @@ data class Counterexample(
                         else -> {
                             val (name, value) = line.split(" = ", limit = 2)
                             // Cut dot-prefix in name (e.g. "C." - controller var, or "P." - plant var)
-                            variables[name.substringAfter('.')] = value
+                            if (mapping == null)
+                                variables[name.substringAfter('.')] = value
+                            else if (mapping.containsKey(name))
+                                variables[mapping[name]!!] = value
                         }
                     }
                 }
